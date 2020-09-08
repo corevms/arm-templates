@@ -1,0 +1,156 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "domain": {
+            "type": "string"
+        },
+        "environment": {
+            "type": "string"
+        },
+        "nickName": {
+            "type": "string"
+        },
+        "planName": {
+            "type": "string"
+        },
+        "subDomain": {
+            "type": "string"
+        },
+        "version": {
+            "type": "string"
+        }
+    },
+    "variables": {
+        "appIdentifier": "[concat('azapp-', parameters('nickName'), '-', parameters('environment'), '-', parameters('version'))]",
+        "fqdn": "[concat(parameters('subDomain'), '.', parameters('domain'))]",
+        "cname": "[if(equals(parameters('environment'), 'prod'), parameters('subDomain'), concat(parameters('subDomain'), '.', parameters('environment')))]"
+    },
+    "resources": [
+        {
+            "name": "[variables('appIdentifier')]",
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2018-11-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+                "Environment": "[parameters('environment')]"
+            },
+            "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('planName'))]"
+            }
+        },
+        {
+            "condition": "[equals(parameters('subDomain'), 'www')]",
+            "name": "[concat(parameters('domain'), '/@')]",
+            "type": "Microsoft.Network/dnsZones/A",
+            "apiVersion": "2018-05-01",
+            "location": "global",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', variables('appIdentifier'))]"
+            ],
+            "properties": {
+                "TTL": 3600,
+                "ARecords": [
+                    {
+                        "ipv4Address": "[reference(resourceId('Microsoft.Web/sites', variables('appIdentifier'))).inboundIpAddress]"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[concat(parameters('domain'), '/', variables('cname'))]",
+            "type": "Microsoft.Network/dnsZones/CNAME",
+            "apiVersion": "2018-05-01",
+            "location": "global",
+            "properties": {
+                "TTL": 3600,
+                "CNAMERecord": {
+                    "cname": "[concat(variables('appIdentifier'), '.azurewebsites.net')]"
+
+                }
+            },
+            "tags": {
+                "Environment": "[parameters('environment')]"
+            }
+        },
+        {
+            "name": "[concat(parameters('domain'), '/asuid.', parameters('subDomain'))]",
+            "type": "Microsoft.Network/dnszones/TXT",
+            "apiVersion": "2018-05-01",
+            "location": "global",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', variables('appIdentifier'))]"
+            ],
+            "properties": {
+                "TTL": 3600,
+                "TXTRecords": [
+                    {
+                        "value": [
+                            "[reference(resourceId('Microsoft.Web/sites', variables('appIdentifier'))).customDomainVerificationId]"
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[concat(variables('appIdentifier'), '/', variables('fqdn'))]",
+            "type": "Microsoft.Web/sites/hostnameBindings",
+            "apiVersion": "2018-11-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', variables('appIdentifier'))]"
+            ],
+            "properties": {},
+            "tags": {
+                "Environment": "[parameters('environment')]"
+            }
+        },
+        {
+            "name": "[variables('fqdn')]",
+            "type": "Microsoft.Web/certificates",
+            "apiVersion": "2019-08-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms/', parameters('planName'))]",
+                "canonicalName": "[variables('fqdn')]"
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Web/sites/',variables('appIdentifier'))]",
+                "[concat('Microsoft.Web/sites/',variables('appIdentifier'),'/hostnameBindings/',variables('fqdn'))]"
+            ],
+            "tags": {
+                "Environment": "[parameters('environment')]"
+            }
+        },
+        {
+            "name": "secureHostnameBinding",
+            "apiVersion": "2019-10-01",
+            "type": "Microsoft.Resources/deployments",
+            "dependsOn": [
+                "[concat('Microsoft.Web/sites/', variables('appIdentifier'))]",
+                "[concat('Microsoft.Web/certificates/',variables('fqdn'))]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "https://github.com/corevms/arm-templates/secure-hostname-binding.json",
+                    "contentVersion": "1.0.0.0"
+                },
+                "parameters": {
+                    "appIdentifier": {
+                        "value": "[variables('appIdentifier')]"
+                    },
+                    "fqdn": {
+                        "value": "[variables('fqdn')]"
+                    },
+                    "location": {
+                        "value": "[resourceGroup().location]"
+                    },
+                    "thumbprint": {
+                        "value": "[reference(resourceId('Microsoft.Web/certificates', variables('fqdn'))).Thumbprint]"
+                    }
+                }
+            }
+        }
+    ]
+}

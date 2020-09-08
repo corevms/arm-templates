@@ -1,0 +1,31 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "appName": {
+            "type": "string"
+        },
+        "fqdn": {
+            "type": "string"
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]"
+        },
+        "thumbprint": {
+            "type": "string"
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Web/sites/hostnameBindings",
+            "name": "[concat(parameters('appName'), '/', parameters('fqdn'))]",
+            "apiVersion": "2018-11-01",
+            "location": "[parameters('location')]",
+            "properties": {
+                "sslState": "SniEnabled",
+                "thumbprint": "[parameters('thumbprint')]"
+            }
+        }
+    ]
+}
